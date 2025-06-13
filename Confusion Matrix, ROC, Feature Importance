@@ -1,0 +1,223 @@
+
+
+
+data <- read.csv("breast-cancer.csv")
+
+rownames(data) <- data[,1]
+data <- data[,-1]
+
+dim(data)
+table(data$diagnosis)
+
+
+# logistic Regression :
+
+library(caret)
+
+data$diagnosis[data$diagnosis == "M"] <- 1
+data$diagnosis[data$diagnosis == "B"] <- 0
+
+data$diagnosis <- as.numeric(data$diagnosis)
+
+train_index <- createDataPartition(data$diagnosis , p = 0.8 , list = F)
+train_data <- data[train_index,]
+test_data <- data[-train_index,]
+
+
+colnames(data)
+lr_model <- glm(diagnosis ~ . , 
+                      data = train_data, family = binomial)
+
+pred <- predict(lr_model, test_data, type = "response")
+pred[pred > 0.1 & pred < 0.3]
+hist(pred)
+
+# Class Prediction & # Probability
+
+pred <- ifelse(pred  > 0.5, 1, 0)
+
+# Model Evaluation
+
+actual <-  factor(test_data$diagnosis, levels = c(0, 1), labels = c("Benign", "Malignant"))
+predicted <-  factor(pred, levels = c(0, 1), labels = c("Benign", "Malignant"))
+
+conf_matrix <- confusionMatrix(predicted,actual)
+conf_matrix_data <- as.data.frame(as.table(conf_matrix))
+
+library(ggplot2)
+
+ggplot(data = conf_matrix_data, aes(Prediction, Reference, fill = Freq)) + 
+  geom_tile() + 
+  scale_fill_gradient(low = "khaki", high = "maroon") + 
+  labs(x = "Predicted", y = "Actual", title = "Confusion Matrix") + 
+  theme_minimal() +  geom_text(aes(label = Freq), color = "black", size = 6)
+
+
+# Multinomial Logistic Regression 
+
+n = 100
+X1 <- rnorm(n, mean = 5, sd = 1)   
+X2 <- rnorm(n, mean = 3, sd = 1.5)  
+X3 <- rnorm(n, mean = 7, sd = 2) 
+y <- sample(1:3, n, replace = TRUE)
+
+data2 <- data.frame(X1 = X1, X2 = X2, X3 = X3, Class = as.factor(y))
+
+train_index2 <- createDataPartition(data2$Class , p = 0.8 , list = F)
+train_data2 <- data2[train_index,] 
+test_data2 <- data2[-train_index,] 
+
+library(nnet)
+
+model <- multinom(Class ~ X1 + X2 + X3, data = train_data2)
+summary(model)
+
+predictions <- predict(model, newdata = test_data2, type = "class")
+
+
+# Feature Importance
+
+coefficients <- summary(lr_model)$coefficients
+feature_importance <- coefficients[, "Estimate"]
+
+View(feature_importance)
+feature_df <- data.frame(Feature = names(feature_importance), Importance = feature_importance)
+
+View(feature_df)
+
+rownames(feature_df) <- NULL
+
+feature_df <- cbind(feature_df , abs(feature_df$Importance))
+colnames(feature_df)[3] <- "abs"
+feature_df_sorted <- feature_df[order(abs(feature_df$abs), decreasing = TRUE), ]
+
+View(feature_df_sorted)
+
+# Plot
+
+
+ggplot(feature_df_sorted, aes(x = reorder(Feature , abs), y = abs , fill = abs)) +
+  geom_bar(stat = "identity") + scale_fill_gradient(low = "gold3", high = "maroon4")+
+  coord_flip() + 
+  labs(title = "Feature Importance in Logistic Regression",
+       x = "Features",
+       y = "Coefficients") 
+  
+
+# Support Vector Machines :
+
+library(e1071)
+
+# Class Prediction
+
+svm_model <- svm(as.factor(diagnosis) ~ ., train_data)
+pred <- predict(svm_model , test_data)
+
+# Probability
+
+svm_model <- svm(as.factor(diagnosis) ~ ., train_data , probability = TRUE)
+pred <- predict(svm_model , test_data , probability = TRUE)
+
+# Model Evaluation
+
+pred <- attr(pred, "probabilities")
+pred <- as.data.frame(pred)
+
+actual <- test_data$diagnosis
+predicted <- pred[,1]
+hist(predicted)
+
+library(pROC)
+
+svm_roc <- roc(actual , predicted)
+
+auc(svm_roc)
+
+plot(svm_roc , col = "purple4" , lwd  =3)
+text(x = 0.8 , y = 0.8 , label = paste0( "AUC : " , round(auc(svm_roc) , 3) ) )
+
+sensitivity <- svm_roc$sensitivities
+specificity <- svm_roc$specificities
+View(data.frame(sensitivity , specificity))
+
+best_index <- which.max(sensitivity + specificity)
+
+best_sensitivity <- sensitivity[best_index]
+best_specificity <- specificity[best_index]
+points(best_specificity  , best_sensitivity , pch = 19 , col = "tomato")
+
+
+best_threshold <- svm_roc$thresholds[best_index]
+hist(predicted)
+abline(v = best_threshold , col = "darkred")
+
+pred_class <- ifelse(predicted >= best_threshold, 1, 0)
+
+View(roc_df)
+
+# Feature Importance
+
+svm_model <- train(diagnosis ~ ., train_data, method = "svmRadial")
+feature_importance <- varImp(svm_model, scale = TRUE)
+feature_df <- data.frame(Feature = rownames(feature_importance$importance), Importance = feature_importance$importance[, 1])
+View(feature_df)
+
+# Plot
+
+ggplot(feature_df, aes(x = reorder(Feature , Importance), y = Importance , fill = Importance)) +
+  geom_bar(stat = "identity") + scale_fill_gradient(low = "gold3", high = "maroon4")+
+  coord_flip() + 
+  labs(title = "Feature Importance in Logistic Regression",
+       x = "Features",
+       y = "Coefficients") 
+
+
+# Decision Trees :
+
+
+library(rpart)
+
+dt_model <- rpart(as.factor(diagnosis) ~ ., train_data)
+
+# Class 
+pred <- predict(dt_model, test_data, type = "class")
+
+# Probability :
+pred <- predict(dt_model, test_data, type = "prob")
+
+# Tree Plot
+
+library(rpart.plot)
+
+rpart.plot(dt_model)
+
+# Feature Importance
+
+dt_model <- train(diagnosis ~ ., data = train_data, method = "rpart")
+feature_importance <- varImp(dt_model, scale = TRUE)
+feature_df <- data.frame(Feature = rownames(feature_importance$importance), Importance = feature_importance$importance[, 1])
+View(feature_df)
+
+# Plot
+
+ggplot(feature_df, aes(x = reorder(Feature , Importance), y = Importance , fill = Importance)) +
+  geom_bar(stat = "identity") + scale_fill_gradient(low = "gold3", high = "maroon4")+
+  coord_flip() + 
+  labs(title = "Feature Importance in Logistic Regression",
+       x = "Features",
+       y = "Coefficients") 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
